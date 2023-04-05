@@ -70,7 +70,11 @@ else: # Fix this later so it complies
 
 for klifs, klifs_chunk in klifs_chunks:
     print('Docking in KLIFS:', klifs)
-    final_klifs_data = pd.DataFrame({'klifs_ID': [], 'SMILES_input': [], 'SMILES_output': [], 'molfile_compressed': [], 'DiffDock_confidence': []})
+    
+    if os.path.exists(f'{args.out_dir}/results_{klifs}.csv'):
+        final_klifs_data = pd.read_csv(f'{args.out_dir}/results_{klifs}.csv')
+    else:
+        final_klifs_data = pd.DataFrame({'klifs_ID': [], 'SMILES_input': [], 'SMILES_output': [], 'molfile_compressed': [], 'DiffDock_confidence': []})
 
     chunks = split_dataframe(klifs_chunk)
 
