@@ -266,8 +266,9 @@ def get_lig_graph(mol, complex_graph):
     complex_graph['ligand', 'lig_bond', 'ligand'].edge_attr = edge_attr
     return
 
-def generate_conformer(mol):
+def generate_conformer(mol, maxAttempts=0):
     ps = AllChem.ETKDGv2()
+    ps.maxAttempts = maxAttempts
     id = AllChem.EmbedMolecule(mol, ps)
     if id == -1:
         print('rdkit coords could not be generated without using random coords. using random coords now.')
