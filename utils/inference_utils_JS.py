@@ -336,13 +336,12 @@ class InferenceDataset(Dataset):
         return len(self.complex_names)
 
     def get(self, idx):
-
         name, protein_file, ligand_description, lm_embedding = \
             self.complex_names[idx], self.protein_file, self.ligand_descriptions[idx], self.lm_embedding
 
         # build the pytorch geometric heterogeneous graph
         complex_graph = HeteroData()
-        complex_graph['name'] = name
+        complex_graph['name'] = name # == SMILES
 
         # parse the ligand, either from file or smile
         try:
@@ -395,4 +394,4 @@ class InferenceDataset(Dataset):
         complex_graph.original_center = protein_center
         complex_graph.mol = mol
         complex_graph['success'] = True
-        return complex_graph # extra return the smiles
+        return complex_graph # extra return the smiles in ['name'] attribute
