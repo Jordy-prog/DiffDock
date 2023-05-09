@@ -59,7 +59,7 @@ if args.confidence_model_dir is not None:
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# LOAD THE .CSV AND EXECUTE THE CODE PER 1000 or so (or maybe per klifs)
+# LOAD THE .CSV AND EXECUTE THE CODE PER KLIFS
 if args.protein_ligand_csv is not None:
     klifs_chunks = preprocess_data(args.protein_ligand_csv)
 else: # Fix this later so it complies
@@ -70,7 +70,11 @@ else: # Fix this later so it complies
 
 for klifs, klifs_chunk in klifs_chunks:
     print('Docking in KLIFS:', klifs)
-    final_klifs_data = pd.DataFrame({'klifs_ID': [], 'SMILES_input': [], 'SMILES_output': [], 'molfile_compressed': [], 'DiffDock_confidence': []})
+
+    if os.path.exists(f'{args.out_dir}/results_{klifs}.csv'):
+        final_klifs_data = pd.read_csv(f'{args.out_dir}/results_{klifs}.csv')
+    else:
+        final_klifs_data = pd.DataFrame({'klifs_ID': [], 'SMILES_input': [], 'SMILES_output': [], 'molfile_compressed': [], 'DiffDock_confidence': []})
 
     chunks = split_dataframe(klifs_chunk)
 
@@ -81,11 +85,6 @@ for klifs, klifs_chunk in klifs_chunks:
         ligand_description_list = set_nones(chunk['ligand_description'].tolist())
 
         complex_name_list = [name if name is not None else f"complex_{i}" for i, name in enumerate(complex_name_list)]
-
-        # WRITING WILL CHANGE
-        # for name in complex_name_list: 
-        #     write_dir = f'{args.out_dir}/{name}'
-        #     os.makedirs(write_dir, exist_ok=True)
 
         # preprocessing of complexes into geometric graphs
         test_dataset = InferenceDataset(out_dir=args.out_dir, complex_names=complex_name_list, protein_files=protein_path_list,
@@ -191,11 +190,6 @@ for klifs, klifs_chunk in klifs_chunks:
                 final_klifs_data = pd.concat([final_klifs_data, klifs_data_chunk])
 
                 write_dir = f'{args.out_dir}/{complex_name_list[idx]}'
-                # for rank, pos in enumerate(ligand_pos):
-                #     mol_pred = copy.deepcopy(lig)
-                #     if score_model_args.remove_hs: mol_pred = RemoveHs(mol_pred)
-                #     if rank == 0: write_mol_with_coords(mol_pred, pos, os.path.join(write_dir, f'rank{rank+1}.sdf'))
-                #     write_mol_with_coords(mol_pred, pos, os.path.join(write_dir, f'rank{rank+1}_confidence{confidence[rank]:.2f}.sdf'))
 
                 # save visualisation frames
                 if args.save_visualisation:

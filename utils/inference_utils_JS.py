@@ -336,13 +336,12 @@ class InferenceDataset(Dataset):
         return len(self.complex_names)
 
     def get(self, idx):
-
         name, protein_file, ligand_description, lm_embedding = \
             self.complex_names[idx], self.protein_file, self.ligand_descriptions[idx], self.lm_embedding
 
         # build the pytorch geometric heterogeneous graph
         complex_graph = HeteroData()
-        complex_graph['name'] = name
+        complex_graph['name'] = name # == SMILES
 
         # parse the ligand, either from file or smile
         try:
@@ -350,14 +349,14 @@ class InferenceDataset(Dataset):
 
             if mol is not None:
                 mol = AddHs(mol)
-                generate_conformer(mol, maxAttempts=100)
+                generate_conformer(mol)
             else:
                 mol = read_molecule(ligand_description, remove_hs=False, sanitize=True)
                 if mol is None:
                     raise Exception('RDKit could not read the molecule ', ligand_description)
                 mol.RemoveAllConformers()
                 mol = AddHs(mol)
-                generate_conformer(mol, maxAttempts=100)
+                generate_conformer(mol)
         except Exception as e:
             print('Failed to read molecule ', ligand_description, ' We are skipping it. The reason is the exception: ', e)
             complex_graph['success'] = False
@@ -395,4 +394,4 @@ class InferenceDataset(Dataset):
         complex_graph.original_center = protein_center
         complex_graph.mol = mol
         complex_graph['success'] = True
-        return complex_graph # extra return the smiles
+        return complex_graph # extra return the smiles in ['name'] attribute
