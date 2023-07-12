@@ -17,6 +17,7 @@ import pandas as pd
 import numpy as np
 import copy
 import zlib
+import warnings
 
 three_to_one = {'ALA':	'A',
 'ARG':	'R',
@@ -48,7 +49,11 @@ three_to_one = {'ALA':	'A',
 
 def get_sequences_from_pdbfile(file_path):
     biopython_parser = PDBParser()
-    structure = biopython_parser.get_structure('random_id', file_path)
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        structure = biopython_parser.get_structure('random_id', file_path)
+    
     structure = structure[0]
     sequence = None
     for i, chain in enumerate(structure):

@@ -16,6 +16,7 @@ from utils.sampling import randomize_position, sampling
 from utils.utils import get_model
 from utils.visualise import PDBFile
 from tqdm import tqdm
+import warnings
 
 RDLogger.DisableLog('rdApp.*')
 import yaml
@@ -113,14 +114,20 @@ for klifs, klifs_chunk in klifs_chunks:
 
         t_to_sigma = partial(t_to_sigma_compl, args=score_model_args)
 
-        model = get_model(score_model_args, device, t_to_sigma=t_to_sigma, no_parallel=True)
+        with warnings.catch_warnings(): # Ignore warnings from the model
+            warnings.simplefilter("ignore")
+            model = get_model(score_model_args, device, t_to_sigma=t_to_sigma, no_parallel=True)
+
         state_dict = torch.load(f'{args.model_dir}/{args.ckpt}', map_location=torch.device('cpu'))
         model.load_state_dict(state_dict, strict=True)
         model = model.to(device)
         model.eval()
 
         if args.confidence_model_dir is not None:
-            confidence_model = get_model(confidence_args, device, t_to_sigma=t_to_sigma, no_parallel=True, confidence_mode=True)
+            with warnings.catch_warnings(): # Ignore warnings from the model
+                warnings.simplefilter("ignore")
+                confidence_model = get_model(confidence_args, device, t_to_sigma=t_to_sigma, no_parallel=True, confidence_mode=True)
+
             state_dict = torch.load(f'{args.confidence_model_dir}/{args.confidence_ckpt}', map_location=torch.device('cpu'))
             confidence_model.load_state_dict(state_dict, strict=True)
             confidence_model = confidence_model.to(device)
