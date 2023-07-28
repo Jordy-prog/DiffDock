@@ -21,25 +21,18 @@ import warnings
 RDLogger.DisableLog('rdApp.*')
 import yaml
 parser = ArgumentParser()
-parser.add_argument('--protein_ligand_csv', type=str, default=None, help='Path to a .csv file specifying the input as described in the README. If this is not None, it will be used instead of the --protein_path, --protein_sequence and --ligand parameters')
-parser.add_argument('--complex_name', type=str, default='1a0q', help='Name that the complex will be saved with')
-parser.add_argument('--protein_path', type=str, default=None, help='Path to the protein file')
-parser.add_argument('--protein_sequence', type=str, default=None, help='Sequence of the protein for ESMFold, this is ignored if --protein_path is not None')
-parser.add_argument('--ligand_description', type=str, default='CCCCC(NC(=O)CCC(=O)O)P(=O)(O)OC1=CC=CC=C1', help='Either a SMILES string or the path to a molecule file that rdkit can read')
-
-parser.add_argument('--out_dir', type=str, default='results/user_inference', help='Directory where the outputs will be written to')
-parser.add_argument('--save_visualisation', action='store_true', default=False, help='Save a pdb file with all of the steps of the reverse diffusion')
-parser.add_argument('--samples_per_complex', type=int, default=10, help='Number of samples to generate')
+parser.add_argument('--protein_ligand_csv', type=str, default=None, required=True, help='Path to a .csv file specifying the input as described in the README. If this is not None, it will be used instead of the --protein_path, --protein_sequence and --ligand parameters')
+parser.add_argument('--samples_per_complex', type=int, default=3, help='Number of samples to generate')
 
 parser.add_argument('--model_dir', type=str, default='workdir/paper_score_model', help='Path to folder with trained score model and hyperparameters')
 parser.add_argument('--ckpt', type=str, default='best_ema_inference_epoch_model.pt', help='Checkpoint to use for the score model')
 parser.add_argument('--confidence_model_dir', type=str, default='workdir/paper_confidence_model', help='Path to folder with trained confidence model and hyperparameters')
 parser.add_argument('--confidence_ckpt', type=str, default='best_model_epoch75.pt', help='Checkpoint to use for the confidence model')
 
-parser.add_argument('--batch_size', type=int, default=32, help='')
+parser.add_argument('--batch_size', type=int, default=10, help='')
 parser.add_argument('--no_final_step_noise', action='store_true', default=False, help='Use no noise in the final step of the reverse diffusion')
-parser.add_argument('--inference_steps', type=int, default=20, help='Number of denoising steps')
-parser.add_argument('--actual_steps', type=int, default=None, help='Number of denoising steps that are actually performed')
+parser.add_argument('--inference_steps', type=int, default=10, help='Number of denoising steps')
+parser.add_argument('--actual_steps', type=int, default=10, help='Number of denoising steps that are actually performed')
 args = parser.parse_args()
 
 # Function for splitting dataframe (temporary, I hope)
@@ -50,8 +43,10 @@ def split_dataframe(df, chunk_size=1000):
         chunks.append(df[i*chunk_size:(i+1)*chunk_size])
     return chunks
 
-args.out_dir = f'results/{args.protein_ligand_csv.split("/")[-1].split(".")[0]}' if args.protein_ligand_csv else args.out_dir # Create out_dir always as file_name of csv.
-os.makedirs(args.out_dir, exist_ok=True)
+args.out_dir = 'results'
+args.out_file_base = os.path.join(args.out_dir, args.protein_ligand_csv.split('/')[-1].replace('.csv', ''))
+
+# Load model parameters
 with open(f'{args.model_dir}/model_parameters.yml') as f:
     score_model_args = Namespace(**yaml.full_load(f))
 if args.confidence_model_dir is not None:
@@ -60,26 +55,19 @@ if args.confidence_model_dir is not None:
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# LOAD THE .CSV AND EXECUTE THE CODE PER KLIFS
-if args.protein_ligand_csv is not None:
-    klifs_chunks = preprocess_data(args.protein_ligand_csv)
-else: # Fix this later so it complies
-    complex_name_list = [args.complex_name]
-    protein_path_list = [args.protein_path]
-    protein_sequence_list = [args.protein_sequence]
-    ligand_description_list = [args.ligand_description]
+# Load csv and split the data into chunks per klifs ID
+klifs_chunks = preprocess_data(args.protein_ligand_csv)
 
+# Execute inference for each klifs ID
 for klifs, klifs_chunk in klifs_chunks:
     print('Docking in KLIFS:', klifs)
-    
-    if os.path.exists(f'{args.out_dir}/results_{klifs}.csv'):
-        final_klifs_data = pd.read_csv(f'{args.out_dir}/results_{klifs}.csv')
-    else:
-        final_klifs_data = pd.DataFrame({'klifs_ID': [], 'SMILES_input': [], 'SMILES_output': [], 'molfile_compressed': [], 'DiffDock_confidence': []})
 
-    chunks = split_dataframe(klifs_chunk)
+    final_klifs_data = pd.DataFrame({'klifs_ID': [], 'SMILES_input': [], 'SMILES_output': [], 'molfile_compressed': [], 'DiffDock_confidence': []})
+
+    chunks = split_dataframe(klifs_chunk) # Split data in chunks of 1000 complexes to avoid memory issues
 
     for chunk in chunks:
+        # remove nan strings
         complex_name_list = set_nones(chunk['complex_name'].tolist())
         protein_path_list = set_nones(chunk['protein_path'].tolist())
         protein_sequence_list = set_nones(chunk['protein_sequence'].tolist())
@@ -141,7 +129,7 @@ for klifs, klifs_chunk in klifs_chunks:
         failures, skipped = 0, 0
         N = args.samples_per_complex
         print('Size of test dataset: ', len(test_dataset))
-        for idx, orig_complex_graph in tqdm(enumerate(test_loader)): # ALSO KEEP TRACK OF KLIFS, SMILES OR A HASH THEREOF in complex_graph['name']
+        for idx, orig_complex_graph in tqdm(enumerate(test_loader)): # SMILES == complex_graph['name']
             if not orig_complex_graph.success[0]:
                 skipped += 1
                 print(f"HAPPENING | The test dataset did not contain {test_dataset.complex_names[idx]} for {test_dataset.ligand_descriptions[idx]} and {test_dataset.protein_files[idx]}. We are skipping this complex.")
@@ -160,25 +148,12 @@ for klifs, klifs_chunk in klifs_chunks:
                 randomize_position(data_list, score_model_args.no_torsion, False, score_model_args.tr_sigma_max)
                 lig = orig_complex_graph.mol[0]
 
-                # initialize visualisation
-                pdb = None
-                if args.save_visualisation:
-                    visualization_list = []
-                    for graph in data_list:
-                        pdb = PDBFile(lig)
-                        pdb.add(lig, 0, 0)
-                        pdb.add((orig_complex_graph['ligand'].pos + orig_complex_graph.original_center).detach().cpu(), 1, 0)
-                        pdb.add((graph['ligand'].pos + graph.original_center).detach().cpu(), part=1, order=1)
-                        visualization_list.append(pdb)
-                else:
-                    visualization_list = None
-
                 # run reverse diffusion
                 data_list, confidence = sampling(data_list=data_list, model=model,
                                                 inference_steps=args.actual_steps if args.actual_steps is not None else args.inference_steps,
                                                 tr_schedule=tr_schedule, rot_schedule=tr_schedule, tor_schedule=tr_schedule,
                                                 device=device, t_to_sigma=t_to_sigma, model_args=score_model_args,
-                                                visualization_list=visualization_list, confidence_model=confidence_model,
+                                                confidence_model=confidence_model,
                                                 confidence_data_list=confidence_data_list, confidence_model_args=confidence_args,
                                                 batch_size=args.batch_size, no_final_step_noise=args.no_final_step_noise)
                 ligand_pos = np.asarray([complex_graph['ligand'].pos.cpu().numpy() + orig_complex_graph.original_center.cpu().numpy() for complex_graph in data_list])
@@ -192,20 +167,9 @@ for klifs, klifs_chunk in klifs_chunks:
                     confidence = confidence[re_order]
                     ligand_pos = ligand_pos[re_order]
 
-                # save predictions
+                # postprocess results and append to final dataframe
                 klifs_data_chunk = postprocess_data(copy.deepcopy(lig), ligand_pos, klifs, orig_complex_graph['name'][0], confidence, remove_hs=score_model_args.remove_hs)
-                final_klifs_data = pd.concat([final_klifs_data, klifs_data_chunk])
-
-                write_dir = f'{args.out_dir}/{complex_name_list[idx]}'
-
-                # save visualisation frames
-                if args.save_visualisation:
-                    if confidence is not None:
-                        for rank, batch_idx in enumerate(re_order):
-                            visualization_list[batch_idx].write(os.path.join(write_dir, f'rank{rank+1}_reverseprocess.pdb'))
-                    else:
-                        for rank, batch_idx in enumerate(ligand_pos):
-                            visualization_list[batch_idx].write(os.path.join(write_dir, f'rank{rank+1}_reverseprocess.pdb'))
+                final_klifs_data = pd.concat([final_klifs_data, klifs_data_chunk])  
 
             except Exception as e:
                 print("Failed on", orig_complex_graph["name"], e)
@@ -215,5 +179,5 @@ for klifs, klifs_chunk in klifs_chunks:
     print(f'Skipped {skipped} complexes')
     print(f'Results are in {args.out_dir}')
 
-    final_klifs_data.to_csv(f'{args.out_dir}/results_{klifs}.csv', index=False)
+    final_klifs_data.to_csv(f'{args.out_file_base}_{klifs}_results.csv', index=False)
 

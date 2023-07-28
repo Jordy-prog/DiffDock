@@ -173,35 +173,13 @@ def generate_ESM_structure(model, filename, sequence):
 # Function Jordy
 def preprocess_data(filepath):
     '''
-    Expects .csv of the form: complex_name (md5 hash of klifs + smiles), protein_path, ligand_description, protein_sequence
+    Expects .csv of the form: complex_name smiles, protein_path, ligand_description, protein_sequence
     '''
-    data = pd.read_csv(filepath)
-    
-    # EXTRA CLAUSE: Remove every smiles + klifs combo that is already in the results
-    output_folder = f'results/{filepath.split("/")[-1].split(".")[0]}'
-
-    if os.path.exists(output_folder):
-        dfs = []
-        
-        for klifs in data['protein_path'].apply(lambda x: x.split('/')[-1].split('.')[0]).unique():
-            try:
-                dfs.append(pd.read_csv(os.path.join(output_folder, f'results_{klifs}.csv')))
-            except:
-                pass
-        
-        if len(dfs):
-            results = pd.concat(dfs)
-            results['klifs_smiles'] = results['klifs_ID'].apply(int).apply(str) + results['SMILES_input']
-
-            data['klifs_smiles'] = data['protein_path'].apply(lambda x: x.split('/')[-1].split('.')[0]) + data['complex_name']
-            data = data[~data['klifs_smiles'].isin(results['klifs_smiles'])]
-            data.drop(columns=['klifs_smiles'], inplace=True)
-
-            print('# Of SMILES to dock:', len(data))
-
-            if len(data) == 0:
-                print('EVERY SMILES WAS SUCCESFULLY DOCKED')
-                exit()
+    try:
+        data = pd.read_csv(filepath)
+    except FileNotFoundError:
+        print('File not found:', filepath)
+        exit()
 
     data['klifs'] = data['protein_path'].apply(lambda x: int(x.split('/')[-1].split('.')[0])) # Expects protein input files to be {klifs}.pdb
     grouped = data.groupby(['klifs'])
@@ -267,12 +245,12 @@ class InferenceDataset(Dataset):
 
         self.complex_names = complex_names
         self.protein_files = protein_files
-        self.protein_file = protein_files[0] # Jordy, it's the same one over and over again
+        self.protein_file = protein_files[0] # The list contains the same element repeatedly, so we can just take the first one
         self.ligand_descriptions = ligand_descriptions
         self.protein_sequences = protein_sequences
         self.protein_sequence = protein_sequences[0]
 
-        # Generate a single LM embedding - JORDY
+        # Generate a single LM embedding, because it is sorted per klifs anyway - JORDY
         if lm_embedding and (precomputed_lm_embedding is None):
             print("Generating ESM language model embedding")
             model_location = "esm2_t33_650M_UR50D"
@@ -291,38 +269,6 @@ class InferenceDataset(Dataset):
             self.lm_embedding = [None]
         else:
             self.lm_embedding = precomputed_lm_embedding
-
-        # generate LM embeddings
-        # if lm_embeddings and (precomputed_lm_embeddings is None or precomputed_lm_embeddings[0] is None):
-        #     print("Generating ESM language model embeddings")
-        #     model_location = "esm2_t33_650M_UR50D"
-        #     model, alphabet = pretrained.load_model_and_alphabet(model_location)
-        #     model.eval()
-        #     if torch.cuda.is_available():
-        #         model = model.cuda()
-
-        #     protein_sequences = get_sequences(protein_files, protein_sequences)
-        #     labels, sequences = [], []
-        #     for i in range(len(protein_sequences)):
-        #         s = protein_sequences[i].split(':')
-        #         sequences.extend(s)
-        #         labels.extend([complex_names[i] + '_chain_' + str(j) for j in range(len(s))])
-
-        #     print(labels, sequences)
-        #     print(len(labels), len(sequences))
-
-        #     lm_embeddings = compute_ESM_embeddings(model, alphabet, labels, sequences)
-
-        #     self.lm_embeddings = []
-        #     for i in range(len(protein_sequences)):
-        #         s = protein_sequences[i].split(':')
-        #         self.lm_embeddings.append([lm_embeddings[complex_names[i] + '_chain_' + str(j)] for j in range(len(s))])
-
-        # elif not lm_embeddings:
-        #     self.lm_embeddings = [None] * len(self.complex_names)
-
-        # else:
-        #     self.lm_embeddings = precomputed_lm_embeddings
 
         # generate structures with ESMFold
         if None in protein_files:
